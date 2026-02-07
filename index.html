@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spaceman - Word Guessing Game!</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', 'Comic Sans MS', Arial, sans-serif;
+    background: #0b0e2d;
+    color: #fff;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ---- starfield ---- */
+  .stars { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+  .stars span {
+    position: absolute;
+    border-radius: 50%;
+    background: #fff;
+    animation: twinkle var(--d, 3s) ease-in-out infinite alternate;
+  }
+  @keyframes twinkle { 0% { opacity: .2; transform: scale(.8); } 100% { opacity: 1; transform: scale(1.2); } }
+
+  .screen { display: none; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; position: relative; z-index: 1; padding: 20px; }
+  .screen.active { display: flex; }
+
+  /* ---- SETUP ---- */
+  #setup-screen h1 { font-size: clamp(2rem, 6vw, 3.5rem); margin-bottom: 8px; color: #ffd166; text-shadow: 0 0 20px rgba(255,209,102,.6); }
+  #setup-screen p { font-size: clamp(1rem, 3vw, 1.4rem); margin-bottom: 24px; color: #a0c4ff; }
+  #setup-screen .rocket-emoji { font-size: clamp(3rem, 8vw, 5rem); margin-bottom: 12px; }
+
+  textarea {
+    width: min(90vw, 420px); height: 180px;
+    border: 3px solid #5e60ce; border-radius: 16px;
+    background: #1b1f4b; color: #fff;
+    font-size: clamp(1.1rem, 3vw, 1.4rem);
+    padding: 16px; resize: vertical;
+    outline: none;
+  }
+  textarea::placeholder { color: #7e80b0; }
+  textarea:focus { border-color: #ffd166; box-shadow: 0 0 15px rgba(255,209,102,.3); }
+
+  .btn {
+    margin-top: 20px; padding: 16px 48px;
+    font-size: clamp(1.3rem, 4vw, 1.8rem); font-weight: 700;
+    border: none; border-radius: 50px; cursor: pointer;
+    background: linear-gradient(135deg, #f72585, #7209b7);
+    color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,.3);
+    box-shadow: 0 6px 20px rgba(247,37,133,.4);
+    transition: transform .15s, box-shadow .15s;
+  }
+  .btn:hover { transform: scale(1.05); box-shadow: 0 8px 28px rgba(247,37,133,.5); }
+  .btn:active { transform: scale(.97); }
+
+  .error-msg { color: #ff6b6b; margin-top: 10px; font-size: 1.1rem; min-height: 1.4em; }
+
+  /* ---- GAME ---- */
+  #game-screen { justify-content: flex-start; padding-top: 16px; gap: 8px; }
+
+  .game-top-bar {
+    width: 100%; max-width: 700px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: clamp(.9rem, 2.5vw, 1.1rem); color: #a0c4ff;
+  }
+
+  .spaceman-container {
+    width: min(90vw, 320px); height: min(50vw, 220px);
+    position: relative; margin: 4px 0;
+  }
+  .spaceman-container canvas { width: 100%; height: 100%; }
+
+  .guesses-left {
+    font-size: clamp(1rem, 3vw, 1.3rem); color: #ffd166;
+    margin-bottom: 2px;
+  }
+
+  .word-display {
+    display: flex; gap: clamp(6px, 2vw, 14px);
+    margin: 8px 0; flex-wrap: wrap; justify-content: center;
+  }
+  .word-display .letter-slot {
+    width: clamp(32px, 8vw, 52px); height: clamp(40px, 10vw, 60px);
+    border-bottom: 4px solid #5e60ce;
+    display: flex; align-items: center; justify-content: center;
+    font-size: clamp(1.5rem, 5vw, 2.4rem); font-weight: 700;
+    color: #fff; text-transform: uppercase;
+    transition: color .3s;
+  }
+  .word-display .letter-slot.revealed { color: #06d6a0; border-color: #06d6a0; }
+
+  .keyboard {
+    display: flex; flex-wrap: wrap; justify-content: center;
+    gap: clamp(4px, 1vw, 8px);
+    max-width: 700px; margin-top: 8px;
+  }
+  .key-btn {
+    width: clamp(34px, 8vw, 52px); height: clamp(38px, 9vw, 54px);
+    border: 2px solid #5e60ce; border-radius: 12px;
+    background: #1b1f4b; color: #fff;
+    font-size: clamp(1rem, 3vw, 1.5rem); font-weight: 700;
+    cursor: pointer; transition: all .15s;
+    text-transform: uppercase;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .key-btn:hover:not(:disabled) { background: #5e60ce; transform: scale(1.08); }
+  .key-btn:disabled { opacity: .25; cursor: default; transform: none; }
+  .key-btn.correct { background: #06d6a0; border-color: #06d6a0; color: #0b0e2d; }
+  .key-btn.wrong { background: #ef476f; border-color: #ef476f; }
+
+  /* ---- RESULT OVERLAY ---- */
+  .result-overlay {
+    display: none; position: fixed; inset: 0; z-index: 100;
+    background: rgba(11,14,45,.92);
+    flex-direction: column; align-items: center; justify-content: center;
+    padding: 20px; text-align: center;
+  }
+  .result-overlay.active { display: flex; }
+  .result-overlay h2 { font-size: clamp(2rem, 7vw, 3.5rem); margin-bottom: 12px; }
+  .result-overlay p { font-size: clamp(1.1rem, 3.5vw, 1.6rem); margin-bottom: 8px; color: #a0c4ff; }
+  .result-overlay .word-reveal { font-size: clamp(1.4rem, 4vw, 2rem); color: #ffd166; margin-bottom: 20px; }
+
+  /* ---- SUMMARY ---- */
+  #summary-screen h2 { font-size: clamp(1.8rem, 5vw, 3rem); color: #ffd166; margin-bottom: 16px; }
+  #summary-screen .score { font-size: clamp(3rem, 10vw, 5rem); color: #06d6a0; font-weight: 700; }
+  #summary-screen .score-label { font-size: clamp(1.1rem, 3vw, 1.5rem); color: #a0c4ff; margin-bottom: 12px; }
+  .word-results { list-style: none; margin-bottom: 24px; max-height: 35vh; overflow-y: auto; width: min(90vw, 400px); }
+  .word-results li {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 16px; font-size: clamp(1rem, 3vw, 1.3rem);
+    border-bottom: 1px solid #2a2d5e; text-transform: uppercase;
+  }
+  .word-results .mark { font-size: 1.3em; }
+
+  /* ---- celebration particles ---- */
+  .celebration { position: fixed; inset: 0; pointer-events: none; z-index: 150; }
+  .celebration .particle {
+    position: absolute; border-radius: 50%;
+    animation: pop var(--dur) ease-out forwards;
+  }
+  @keyframes pop {
+    0% { opacity: 1; transform: translate(0,0) scale(1); }
+    100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(0); }
+  }
+</style>
+</head>
+<body>
+
+<!-- Starfield -->
+<div class="stars" id="stars"></div>
+
+<!-- SETUP SCREEN -->
+<div class="screen active" id="setup-screen">
+  <div class="rocket-emoji" aria-hidden="true">&#x1F680;</div>
+  <h1>Spaceman!</h1>
+  <p>Type your spelling words below (one per line)</p>
+  <textarea id="word-input" placeholder="cat&#10;dog&#10;sun&#10;moon"></textarea>
+  <div class="error-msg" id="setup-error"></div>
+  <button class="btn" id="launch-btn">Launch!</button>
+</div>
+
+<!-- GAME SCREEN -->
+<div class="screen" id="game-screen">
+  <div class="game-top-bar">
+    <span id="progress-label">Word 1 / 1</span>
+    <span id="score-label">Score: 0</span>
+  </div>
+  <div class="spaceman-container"><canvas id="spaceman-canvas"></canvas></div>
+  <div class="guesses-left" id="guesses-left">6 guesses left</div>
+  <div class="word-display" id="word-display"></div>
+  <div class="keyboard" id="keyboard"></div>
+</div>
+
+<!-- WIN / LOSE OVERLAY -->
+<div class="result-overlay" id="result-overlay">
+  <h2 id="result-title"></h2>
+  <p id="result-msg"></p>
+  <div class="word-reveal" id="result-word"></div>
+  <button class="btn" id="next-btn">Next Word</button>
+</div>
+
+<!-- SUMMARY SCREEN -->
+<div class="screen" id="summary-screen">
+  <h2>Mission Complete!</h2>
+  <div class="score" id="final-score"></div>
+  <div class="score-label" id="final-label"></div>
+  <ul class="word-results" id="word-results"></ul>
+  <button class="btn" id="restart-btn">Play Again</button>
+</div>
+
+<!-- Celebration container -->
+<div class="celebration" id="celebration"></div>
+
+<script>
+// ========== AUDIO (Web Audio API — no external files) ==========
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let actx;
+function ensureAudio() { if (!actx) actx = new AudioCtx(); }
+
+function playTone(freq, dur, type, vol) {
+  try {
+    ensureAudio();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type || 'sine'; o.frequency.value = freq;
+    g.gain.value = vol || .15;
+    g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(); o.stop(actx.currentTime + dur);
+  } catch(e) {}
+}
+
+function sfxCorrect() { playTone(523,.12,'sine',.18); setTimeout(()=>playTone(659,.12,'sine',.18),100); setTimeout(()=>playTone(784,.2,'sine',.18),200); }
+function sfxWrong()   { playTone(200,.3,'sawtooth',.1); }
+function sfxWin()     { [523,659,784,1047].forEach((f,i)=>setTimeout(()=>playTone(f,.18,'sine',.16),i*120)); }
+function sfxLose()    { [400,350,300,250].forEach((f,i)=>setTimeout(()=>playTone(f,.22,'triangle',.12),i*180)); }
+
+// ========== STARS ==========
+(function makeStars(){
+  const c = document.getElementById('stars');
+  for(let i=0;i<80;i++){
+    const s = document.createElement('span');
+    const sz = Math.random()*3+1;
+    Object.assign(s.style,{
+      width: sz+'px', height: sz+'px',
+      left: Math.random()*100+'%', top: Math.random()*100+'%',
+      '--d': (Math.random()*3+2)+'s'
+    });
+    c.appendChild(s);
+  }
+})();
+
+// ========== STATE ==========
+let words=[], wordIdx=0, currentWord='', guessed=new Set(), wrongCount=0, score=0, results=[], gameOver=false;
+const MAX_WRONG = 6;
+
+// ========== DOM ==========
+const $=id=>document.getElementById(id);
+const screens = ['setup-screen','game-screen','summary-screen'];
+function showScreen(id){ screens.forEach(s=>$(s).classList.toggle('active', s===id)); }
+
+// ========== SETUP ==========
+$('launch-btn').addEventListener('click', ()=>{
+  const raw = $('word-input').value.trim();
+  if(!raw){ $('setup-error').textContent='Please type at least one word!'; return; }
+  words = raw.split(/\n+/).map(w=>w.trim().toLowerCase().replace(/[^a-z]/g,'')).filter(Boolean);
+  if(!words.length){ $('setup-error').textContent='No valid words found!'; return; }
+  $('setup-error').textContent='';
+  wordIdx=0; score=0; results=[];
+  startRound();
+});
+
+// ========== GAME ROUND ==========
+function startRound(){
+  currentWord = words[wordIdx];
+  guessed = new Set(); wrongCount = 0; gameOver = false;
+  showScreen('game-screen');
+  $('result-overlay').classList.remove('active');
+  $('progress-label').textContent = `Word ${wordIdx+1} / ${words.length}`;
+  $('score-label').textContent = `Score: ${score}`;
+  renderWord();
+  renderKeyboard();
+  updateGuessesLeft();
+  drawSpaceman();
+}
+
+function renderWord(){
+  const d = $('word-display'); d.innerHTML='';
+  for(const ch of currentWord){
+    const s = document.createElement('div');
+    s.className = 'letter-slot';
+    if(guessed.has(ch)){ s.textContent = ch; s.classList.add('revealed'); }
+    else { s.textContent = '\u00A0'; }
+    d.appendChild(s);
+  }
+}
+
+function renderKeyboard(){
+  const k = $('keyboard'); k.innerHTML='';
+  for(let i=0;i<26;i++){
+    const ch = String.fromCharCode(97+i);
+    const b = document.createElement('button');
+    b.className='key-btn'; b.textContent=ch; b.dataset.letter=ch;
+    if(guessed.has(ch)){
+      b.disabled=true;
+      b.classList.add(currentWord.includes(ch)?'correct':'wrong');
+    }
+    b.addEventListener('click', ()=>guess(ch));
+    k.appendChild(b);
+  }
+}
+
+function guess(ch){
+  if(gameOver||guessed.has(ch)) return;
+  ensureAudio();
+  guessed.add(ch);
+  if(currentWord.includes(ch)){
+    sfxCorrect();
+  } else {
+    wrongCount++;
+    sfxWrong();
+  }
+  renderWord(); renderKeyboard(); updateGuessesLeft(); drawSpaceman();
+  checkEnd();
+}
+
+function updateGuessesLeft(){
+  const left = MAX_WRONG - wrongCount;
+  $('guesses-left').textContent = left === 1 ? '1 guess left!' : `${left} guesses left`;
+  $('guesses-left').style.color = left<=2 ? '#ef476f' : '#ffd166';
+}
+
+function checkEnd(){
+  const won = [...currentWord].every(c=>guessed.has(c));
+  const lost = wrongCount >= MAX_WRONG;
+  if(!won && !lost) return;
+  gameOver = true;
+  results.push({word:currentWord, won});
+  if(won) score++;
+  setTimeout(()=>showResult(won), won?400:600);
+}
+
+function showResult(won){
+  const o = $('result-overlay');
+  if(won){
+    sfxWin();
+    $('result-title').textContent='Great Job! ⭐';
+    $('result-title').style.color='#06d6a0';
+    $('result-msg').textContent='You guessed the word!';
+    spawnCelebration();
+  } else {
+    sfxLose();
+    $('result-title').textContent='Oh no!';
+    $('result-title').style.color='#ef476f';
+    $('result-msg').textContent="That's okay — you'll get it next time!";
+  }
+  $('result-word').textContent = `The word was: ${currentWord.toUpperCase()}`;
+  $('next-btn').textContent = wordIdx < words.length-1 ? 'Next Word' : 'See Results';
+  o.classList.add('active');
+}
+
+$('next-btn').addEventListener('click', ()=>{
+  wordIdx++;
+  if(wordIdx < words.length){ startRound(); }
+  else { showSummary(); }
+});
+
+// ========== SUMMARY ==========
+function showSummary(){
+  $('result-overlay').classList.remove('active');
+  showScreen('summary-screen');
+  $('final-score').textContent = `${score} / ${words.length}`;
+  $('final-label').textContent = score===words.length ? 'Perfect score — amazing!' : score >= words.length/2 ? 'Great work, astronaut!' : 'Keep practicing, you can do it!';
+  const ul = $('word-results'); ul.innerHTML='';
+  results.forEach(r=>{
+    const li=document.createElement('li');
+    li.innerHTML=`<span>${r.word}</span><span class="mark">${r.won?'⭐':'❌'}</span>`;
+    ul.appendChild(li);
+  });
+  if(score===words.length) spawnCelebration();
+}
+
+$('restart-btn').addEventListener('click', ()=>{ showScreen('setup-screen'); });
+
+// ========== KEYBOARD INPUT ==========
+document.addEventListener('keydown', e=>{
+  if($('game-screen').classList.contains('active') && !gameOver){
+    const ch = e.key.toLowerCase();
+    if(/^[a-z]$/.test(ch)) guess(ch);
+  }
+});
+
+// ========== SPACEMAN CANVAS ==========
+function drawSpaceman(){
+  const canvas = $('spaceman-canvas');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0,0,W,H);
+
+  // ground
+  ctx.strokeStyle='#5e60ce'; ctx.lineWidth=3; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath(); ctx.moveTo(W*.1, H*.92); ctx.lineTo(W*.9, H*.92); ctx.stroke();
+
+  // small stars in canvas
+  ctx.fillStyle='rgba(255,255,255,.15)';
+  [[.15,.12,2],[.8,.08,1.5],[.6,.18,1.8],[.25,.3,1.2],[.85,.35,1.6]].forEach(([x,y,r])=>{
+    ctx.beginPath(); ctx.arc(W*x,H*y,r,0,Math.PI*2); ctx.fill();
+  });
+
+  const cx = W*.5, groundY = H*.92;
+
+  if(wrongCount>=1){
+    // helmet (circle)
+    ctx.strokeStyle='#a0c4ff'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(cx, groundY - H*.58, H*.12, 0, Math.PI*2); ctx.stroke();
+    // visor
+    ctx.fillStyle='rgba(96,165,250,.25)';
+    ctx.beginPath(); ctx.arc(cx, groundY - H*.58, H*.08, 0, Math.PI*2); ctx.fill();
+    // visor shine
+    ctx.strokeStyle='rgba(255,255,255,.4)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(cx - H*.02, groundY - H*.6, H*.04, -Math.PI*.6, -Math.PI*.1); ctx.stroke();
+  }
+  if(wrongCount>=2){
+    // body (space suit)
+    ctx.strokeStyle='#a0c4ff'; ctx.lineWidth=3;
+    const bodyTop = groundY - H*.46;
+    const bodyBot = groundY - H*.2;
+    ctx.beginPath();
+    ctx.moveTo(cx - H*.1, bodyTop);
+    ctx.lineTo(cx - H*.12, bodyBot);
+    ctx.lineTo(cx + H*.12, bodyBot);
+    ctx.lineTo(cx + H*.1, bodyTop);
+    ctx.closePath();
+    ctx.stroke();
+    // backpack
+    ctx.fillStyle='rgba(94,96,206,.4)';
+    ctx.fillRect(cx + H*.1, bodyTop + H*.04, H*.06, H*.16);
+    ctx.strokeStyle='#5e60ce'; ctx.strokeRect(cx + H*.1, bodyTop + H*.04, H*.06, H*.16);
+  }
+  if(wrongCount>=3){
+    // left arm
+    ctx.strokeStyle='#a0c4ff'; ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.moveTo(cx - H*.12, groundY - H*.4);
+    ctx.lineTo(cx - H*.24, groundY - H*.3);
+    ctx.stroke();
+    // glove
+    ctx.fillStyle='#ffd166';
+    ctx.beginPath(); ctx.arc(cx - H*.24, groundY - H*.3, H*.03, 0, Math.PI*2); ctx.fill();
+  }
+  if(wrongCount>=4){
+    // right arm
+    ctx.strokeStyle='#a0c4ff'; ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.moveTo(cx + H*.12, groundY - H*.4);
+    ctx.lineTo(cx + H*.24, groundY - H*.3);
+    ctx.stroke();
+    // glove
+    ctx.fillStyle='#ffd166';
+    ctx.beginPath(); ctx.arc(cx + H*.24, groundY - H*.3, H*.03, 0, Math.PI*2); ctx.fill();
+  }
+  if(wrongCount>=5){
+    // left leg + boot
+    ctx.strokeStyle='#a0c4ff'; ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.moveTo(cx - H*.08, groundY - H*.2);
+    ctx.lineTo(cx - H*.14, groundY - H*.05);
+    ctx.stroke();
+    ctx.fillStyle='#ef476f';
+    ctx.beginPath(); ctx.ellipse(cx - H*.14, groundY - H*.03, H*.04, H*.025, 0, 0, Math.PI*2); ctx.fill();
+  }
+  if(wrongCount>=6){
+    // right leg + boot
+    ctx.strokeStyle='#a0c4ff'; ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.moveTo(cx + H*.08, groundY - H*.2);
+    ctx.lineTo(cx + H*.14, groundY - H*.05);
+    ctx.stroke();
+    ctx.fillStyle='#ef476f';
+    ctx.beginPath(); ctx.ellipse(cx + H*.14, groundY - H*.03, H*.04, H*.025, 0, 0, Math.PI*2); ctx.fill();
+
+    // X eyes when lost
+    ctx.strokeStyle='#ef476f'; ctx.lineWidth=2;
+    const ey = groundY - H*.59;
+    [cx - H*.04, cx + H*.04].forEach(ex=>{
+      ctx.beginPath(); ctx.moveTo(ex-3,ey-3); ctx.lineTo(ex+3,ey+3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ex+3,ey-3); ctx.lineTo(ex-3,ey+3); ctx.stroke();
+    });
+  }
+  // smiley face if no wrong guesses yet but helmet drawn
+  if(wrongCount>=1 && wrongCount<6){
+    const ey = groundY - H*.59;
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(cx - H*.04, ey, 2.5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + H*.04, ey, 2.5, 0, Math.PI*2); ctx.fill();
+    if(wrongCount<=3){
+      ctx.strokeStyle='#fff'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(cx, groundY - H*.56, H*.03, .1*Math.PI, .9*Math.PI); ctx.stroke();
+    } else {
+      ctx.strokeStyle='#ffd166'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(cx - H*.03, groundY - H*.555); ctx.lineTo(cx + H*.03, groundY - H*.555); ctx.stroke();
+    }
+  }
+}
+
+// redraw on resize
+window.addEventListener('resize', ()=>{ if($('game-screen').classList.contains('active')) drawSpaceman(); });
+
+// ========== CELEBRATION ==========
+function spawnCelebration(){
+  const c = $('celebration'); c.innerHTML='';
+  const colors=['#ffd166','#06d6a0','#ef476f','#a0c4ff','#f72585','#7209b7','#fff'];
+  for(let i=0;i<50;i++){
+    const p = document.createElement('div');
+    p.className='particle';
+    const sz = Math.random()*10+4;
+    const tx = (Math.random()-.5)*window.innerWidth*.8;
+    const ty = -(Math.random()*window.innerHeight*.6+100);
+    const dur = Math.random()*1.2+.8;
+    Object.assign(p.style,{
+      width:sz+'px', height:sz+'px',
+      left: Math.random()*100+'%', top: (60+Math.random()*30)+'%',
+      background: colors[Math.floor(Math.random()*colors.length)],
+      '--tx':tx+'px', '--ty':ty+'px', '--dur':dur+'s'
+    });
+    c.appendChild(p);
+  }
+  setTimeout(()=>c.innerHTML='', 2500);
+}
+</script>
+</body>
+</html>
